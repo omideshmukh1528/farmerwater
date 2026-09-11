@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  ArrowLeft,
   BarChart3,
   Bell,
   Check,
@@ -17,6 +18,7 @@ import {
   Info,
   Leaf,
   ListFilter,
+  LogOut,
   Map,
   Menu,
   MessageSquare,
@@ -33,6 +35,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
 type Role = 'farmer' | 'authority';
@@ -160,6 +163,8 @@ function formatDate(value: string): string {
 }
 
 function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [role, setRole] = useState<Role>('farmer');
   const [view, setView] = useState<View>('overview');
   const [farmer, setFarmer] = useState<Farmer>(fallbackFarmer);
@@ -182,6 +187,18 @@ function App() {
   const allocationPercent = Math.round((farmer.received_liters / farmer.entitlement_liters) * 100);
 
   useEffect(() => {
+    supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (newSession) {
+        const storedRole = (newSession.user.user_metadata as { role?: Role } | null)?.role;
+        if (storedRole === 'farmer' || storedRole === 'authority') setRole(storedRole);
+      }
+      setAuthReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
     let active = true;
     async function loadDemoData(): Promise<void> {
       const [farmerResult, requestResult, eventResult] = await Promise.all([
@@ -197,7 +214,7 @@ function App() {
     }
     void loadDemoData();
     return () => { active = false; };
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -259,7 +276,22 @@ function App() {
     setMobileNavOpen(false);
   }
 
+  async function signOut(): Promise<void> {
+    await supabase.auth.signOut();
+    setSession(null);
+    setRole('farmer');
+    setView('overview');
+  }
+
   const heading = viewHeadings[view];
+
+  if (authReady && !session) {
+    return <LoginPage onSignedIn={(newRole: Role) => { setRole(newRole); }} />;
+  }
+
+  if (!authReady) {
+    return <div className="auth-splash"><div className="auth-splash-content"><div className="brand-mark"><Droplets size={24} strokeWidth={2.6} /></div><RefreshCw size={20} className="spin" /></div></div>;
+  }
 
   return (
     <div className="app-shell">
@@ -288,9 +320,10 @@ function App() {
           <button className="mobile-menu" onClick={() => setMobileNavOpen((open) => !open)}><Menu size={20} /></button>
           <div className="breadcrumbs"><span>Workspace</span><ArrowRight size={13} /><strong>{role === 'farmer' ? 'Farmer portal' : 'Authority command center'}</strong></div>
           <div className="topbar-actions">
-            <div className="role-switcher"><button className={role === 'farmer' ? 'selected' : ''} onClick={() => setRole('farmer')}><Leaf size={14} /> Farmer</button><button className={role === 'authority' ? 'selected' : ''} onClick={() => setRole('authority')}><ShieldCheck size={14} /> Authority</button></div>
+            <span className="user-email">{session?.user?.email ?? 'Signed in'}</span>
             <button className="icon-button notification"><Bell size={18} /><span /></button>
-            <div className="avatar">RP</div>
+            <div className="avatar">{role === 'farmer' ? 'F' : 'A'}</div>
+            <button className="signout-button" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button>
           </div>
         </header>
 
@@ -575,5 +608,132 @@ function StatCard({ label, value, meta, icon, tone }: { label: string; value: st
 function RequestList({ requests, selectedRequestId, onSelectRequest, authority = false, showAll = false }: { requests: WaterRequest[]; selectedRequestId: string; onSelectRequest: (id: string) => void; authority?: boolean; showAll?: boolean }) { return <div className="request-list">{requests.slice(0, showAll ? undefined : authority ? 4 : 3).map((request) => <button className={`request-row ${selectedRequestId === request.id ? 'selected' : ''}`} key={request.id} onClick={() => onSelectRequest(request.id)}><div className={`request-row-icon ${request.status}`}><FileText size={16} /></div><div className="request-row-main"><strong>{request.request_text}</strong><span>{request.id} · {request.crop} · {formatTime(request.created_at)}</span></div><span className={`status-badge ${request.status}`}>{request.status === 'approved' ? 'Approved' : request.status === 'needs_info' ? 'Needs info' : 'Under review'}</span><ArrowRight size={15} className="row-arrow" /></button>)}</div>; }
 function StatusCard({ request, onTrack }: { request: WaterRequest; onTrack: () => void }) { const approved = request.status === 'approved'; return <section className={`status-card ${approved ? 'approved' : ''}`}><div className="status-top"><div className="check-ring"><Check size={18} /></div><span>{approved ? 'Request approved' : 'Request under review'}</span><span className="request-number">{request.id}</span></div><h2>{approved ? 'Your water allocation is confirmed.' : 'Your request is with a water officer.'}</h2><p>{approved ? '18,000 L will be released in the next canal window, with the balance scheduled after verification.' : 'We extracted the key details and generated a recommendation. You will be notified after human review.'}</p><div className="status-card-footer"><span><Clock3 size={14} /> Updated just now</span><button onClick={onTrack}>View timeline <ArrowRight size={14} /></button></div></section>; }
 function Timeline({ status }: { status: RequestStatus }) { return <div className="timeline"><div className="timeline-item done"><span className="timeline-dot"><Check size={11} /></span><div><strong>Request submitted</strong><span>Natural-language note received</span></div><time>9:41 AM</time></div><div className="timeline-item done"><span className="timeline-dot"><Check size={11} /></span><div><strong>Details extracted</strong><span>Crop and urgency confirmed</span></div><time>9:42 AM</time></div><div className={`timeline-item ${status === 'approved' ? 'done' : 'current'}`}><span className="timeline-dot">{status === 'approved' ? <Check size={11} /> : <span />}</span><div><strong>{status === 'approved' ? 'Allocation approved' : 'Human review'}</strong><span>{status === 'approved' ? 'Officer approved the recommendation' : 'A water officer is reviewing this request'}</span></div><time>{status === 'approved' ? 'Now' : 'In progress'}</time></div><div className="timeline-item"><span className="timeline-dot"><span /></span><div><strong>Water release</strong><span>Next canal window · today</span></div></div></div>; }
+
+/* ── Login / Sign-up Page ── */
+
+function LoginPage({ onSignedIn }: { onSignedIn: (role: Role) => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [selectedRole, setSelectedRole] = useState<Role>('farmer');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    setError('');
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === 'signup') {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { role: selectedRole, full_name: fullName.trim() || undefined } },
+        });
+        if (signUpError) throw signUpError;
+        if (data.session) {
+          onSignedIn(selectedRole);
+        } else {
+          setError('Account created. Please sign in with your new credentials.');
+          setMode('login');
+        }
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (signInError) throw signInError;
+        const storedRole = (data.user?.user_metadata as { role?: Role } | null)?.role;
+        onSignedIn(storedRole === 'authority' ? 'authority' : 'farmer');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Authentication failed. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <div className="auth-visual">
+        <div className="auth-visual-content">
+          <div className="auth-brand-row">
+            <div className="brand-mark large"><Droplets size={26} strokeWidth={2.6} /></div>
+            <div><strong>JalMitra</strong><span>AI water governance</span></div>
+          </div>
+          <h2>Responsible water allocation, governed by people.</h2>
+          <p>JalMitra helps farmers request water in their own words and helps authorities review every recommendation with full transparency.</p>
+          <div className="auth-features">
+            <div className="auth-feature"><Leaf size={18} /><span>Farmers submit requests by voice or text</span></div>
+            <div className="auth-feature"><ShieldCheck size={18} /><span>Authorities approve with AI-assisted fairness</span></div>
+            <div className="auth-feature"><ClipboardCheck size={18} /><span>Every action logged for accountability</span></div>
+          </div>
+          <div className="auth-demo-note"><Info size={14} /> All data is synthetic for demonstration purposes.</div>
+        </div>
+      </div>
+      <div className="auth-form-side">
+        <div className="auth-form-wrap">
+          <div className="auth-form-header">
+            <div className="eyebrow">{mode === 'login' ? 'Welcome back' : 'Create your account'}</div>
+            <h1>{mode === 'login' ? 'Sign in to JalMitra' : 'Join JalMitra'}</h1>
+            <p>{mode === 'login' ? 'Choose your role and enter your credentials.' : 'Tell us who you are and create your account.'}</p>
+          </div>
+
+          <div className="role-selector">
+            <button className={`role-card ${selectedRole === 'farmer' ? 'selected' : ''}`} onClick={() => setSelectedRole('farmer')} type="button">
+              <div className="role-card-icon farmer"><Leaf size={22} /></div>
+              <div><strong>Farmer</strong><span>Request water and track allocations</span></div>
+              <div className="role-check">{selectedRole === 'farmer' && <Check size={16} />}</div>
+            </button>
+            <button className={`role-card ${selectedRole === 'authority' ? 'selected' : ''}`} onClick={() => setSelectedRole('authority')} type="button">
+              <div className="role-card-icon authority"><ShieldCheck size={22} /></div>
+              <div><strong>Authority</strong><span>Review and approve water requests</span></div>
+              <div className="role-check">{selectedRole === 'authority' && <Check size={16} />}</div>
+            </button>
+          </div>
+
+          <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+            {mode === 'signup' && (
+              <div className="auth-field">
+                <label>Full name</label>
+                <input type="text" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="e.g. Ramesh Patil" autoComplete="name" />
+              </div>
+            )}
+            <div className="auth-field">
+              <label>Email address</label>
+              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required />
+            </div>
+            <div className="auth-field">
+              <label>Password</label>
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required />
+            </div>
+            {error && <div className="auth-error"><AlertTriangle size={15} /> {error}</div>}
+            <button type="submit" className="auth-submit" disabled={busy}>
+              {busy ? <RefreshCw size={16} className="spin" /> : <>{mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={16} /></>}
+            </button>
+          </form>
+
+          <div className="auth-switch">
+            {mode === 'login' ? (
+              <>Don't have an account? <button onClick={() => { setMode('signup'); setError(''); }}>Sign up</button></>
+            ) : (
+              <><button onClick={() => { setMode('login'); setError(''); }}><ArrowLeft size={13} /> Back to sign in</button></>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default App;
