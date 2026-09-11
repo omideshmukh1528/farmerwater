@@ -7,10 +7,10 @@ import {
   Bell,
   Check,
   CheckCircle2,
-  ChevronDown,
   CircleHelp,
   ClipboardCheck,
   Clock3,
+  CloudRain,
   Droplets,
   FileText,
   Gauge,
@@ -19,16 +19,15 @@ import {
   ListFilter,
   Map,
   Menu,
+  MessageSquare,
   Mic,
   MoreHorizontal,
-  Play,
   RefreshCw,
   Scale,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  UserRound,
+  TrendingUp,
   Users,
   Waves,
   X,
@@ -120,12 +119,44 @@ const navItems: { id: View; label: string; icon: typeof BarChart3 }[] = [
   { id: 'audit', label: 'Audit log', icon: ClipboardCheck },
 ];
 
+const viewHeadings: Record<View, { eyebrow: (role: Role) => string; title: (role: Role) => string; subtitle: (role: Role) => string }> = {
+  overview: {
+    eyebrow: (role: Role) => role === 'farmer' ? 'Farmer portal · Khed, Maharashtra' : 'District command center · Nashik division',
+    title: (role: Role) => role === 'farmer' ? 'Good morning, Ramesh.' : 'Good morning, Authority.',
+    subtitle: (role: Role) => role === 'farmer' ? 'Here is your water allocation at a glance.' : 'Review recommendations, spot conflicts, and keep allocations fair.',
+  },
+  requests: {
+    eyebrow: () => 'Water request management',
+    title: (role: Role) => role === 'farmer' ? 'Your water requests' : 'Review queue',
+    subtitle: (role: Role) => role === 'farmer' ? 'Track the status of every request you have submitted.' : 'Review and act on every water request in the system.',
+  },
+  intelligence: {
+    eyebrow: () => 'Water intelligence system',
+    title: () => 'Distribution & supply health',
+    subtitle: () => 'Real-time canal flow, reservoir levels, and demand forecasting.',
+  },
+  mediation: {
+    eyebrow: () => 'Mediation center',
+    title: () => 'Conflict resolution',
+    subtitle: () => 'Active disputes and their resolution status.',
+  },
+  audit: {
+    eyebrow: () => 'Audit trail',
+    title: () => 'System activity log',
+    subtitle: () => 'Every action taken in JalMitra, in order.',
+  },
+};
+
 function formatLiters(value: number): string {
   return new Intl.NumberFormat('en-IN').format(value);
 }
 
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
 
 function App() {
@@ -228,6 +259,8 @@ function App() {
     setMobileNavOpen(false);
   }
 
+  const heading = viewHeadings[view];
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNavOpen ? 'sidebar-open' : ''}`}>
@@ -240,7 +273,7 @@ function App() {
         <nav className="side-nav">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => handleNav(id)}>
-              <Icon size={17} /> <span>{label}</span>{id === 'requests' && <b>3</b>}
+              <Icon size={17} /> <span>{label}</span>{id === 'requests' && <b>{requests.length}</b>}
             </button>
           ))}
         </nav>
@@ -263,14 +296,30 @@ function App() {
 
         <div className="page-wrap">
           <div className="page-heading">
-            <div><div className="eyebrow">{role === 'farmer' ? 'Farmer portal · Khed, Maharashtra' : 'District command center · Nashik division'}</div><h1>{role === 'farmer' ? 'Good morning, Ramesh.' : 'Good morning, Authority.'}</h1><p>{role === 'farmer' ? 'Here is your water allocation at a glance.' : 'Review recommendations, spot conflicts, and keep allocations fair.'}</p></div>
+            <div><div className="eyebrow">{heading.eyebrow(role)}</div><h1>{heading.title(role)}</h1><p>{heading.subtitle(role)}</p></div>
             <div className="heading-actions"><span className="live-status"><span className="pulse-dot" /> System operational</span><button className="outline-button"><RefreshCw size={15} /> Refresh</button></div>
           </div>
 
-          {role === 'farmer' ? (
+          {view === 'overview' && (role === 'farmer' ? (
             <FarmerPortal farmer={farmer} remainingLiters={remainingLiters} allocationPercent={allocationPercent} requests={requests} selectedRequest={selectedRequest} submittedRequest={submittedRequest} onNewRequest={() => setComposerOpen(true)} onSelectRequest={setSelectedRequestId} onTrack={() => { setView('requests'); setToast('Showing your request timeline.'); }} />
           ) : (
-            <AuthorityCenter requests={requests} selectedRequest={selectedRequest} events={events} onSelectRequest={setSelectedRequestId} onApprove={approveRequest} onOpenMediation={() => setView('mediation')} />
+            <AuthorityCenter requests={requests} selectedRequest={selectedRequest} events={events} onSelectRequest={setSelectedRequestId} onApprove={approveRequest} onOpenMediation={() => setView('mediation')} onOpenIntelligence={() => setView('intelligence')} onOpenAudit={() => setView('audit')} />
+          ))}
+
+          {view === 'requests' && (
+            <RequestsView role={role} requests={requests} selectedRequest={selectedRequest} events={events} onSelectRequest={setSelectedRequestId} onApprove={approveRequest} onNewRequest={() => setComposerOpen(true)} />
+          )}
+
+          {view === 'intelligence' && (
+            <IntelligenceView role={role} />
+          )}
+
+          {view === 'mediation' && (
+            <MediationView role={role} requests={requests} onSelectRequest={setSelectedRequestId} />
+          )}
+
+          {view === 'audit' && (
+            <AuditView events={events} />
           )}
 
           <footer className="footer-note"><span><Info size={14} /> All figures are synthetic demonstration data.</span><span>JalMitra AI · Responsible water governance prototype</span></footer>
@@ -284,6 +333,8 @@ function App() {
   );
 }
 
+/* ── Overview: Farmer Portal ── */
+
 type FarmerPortalProps = { farmer: Farmer; remainingLiters: number; allocationPercent: number; requests: WaterRequest[]; selectedRequest: WaterRequest; submittedRequest: WaterRequest | null; onNewRequest: () => void; onSelectRequest: (id: string) => void; onTrack: () => void };
 
 function FarmerPortal({ farmer, remainingLiters, allocationPercent, requests, selectedRequest, submittedRequest, onNewRequest, onSelectRequest, onTrack }: FarmerPortalProps) {
@@ -296,13 +347,232 @@ function FarmerPortal({ farmer, remainingLiters, allocationPercent, requests, se
   </>;
 }
 
-type AuthorityProps = { requests: WaterRequest[]; selectedRequest: WaterRequest; events: AuditEvent[]; onSelectRequest: (id: string) => void; onApprove: () => void; onOpenMediation: () => void };
-function AuthorityCenter({ requests, selectedRequest, events, onSelectRequest, onApprove, onOpenMediation }: AuthorityProps) {
-  return <><section className="stat-grid authority-stats"><StatCard label="Open requests" value="18" meta="3 high priority" icon={<FileText />} tone="blue" /><StatCard label="Water in system" value="2.4M L" meta="Across 6 outlets" icon={<Waves />} tone="aqua" /><StatCard label="Potential conflicts" value="3" meta="Needs verification" icon={<AlertTriangle />} tone="red" /><StatCard label="Avg. response SLA" value="1h 42m" meta="18m ahead of target" icon={<Clock3 />} tone="green" /></section><div className="authority-layout"><div className="authority-main"><section className="panel queue-panel"><div className="panel-heading compact"><div><div className="eyebrow">Review queue</div><h2>Requests needing attention</h2></div><div className="filter-actions"><button className="outline-button small"><ListFilter size={14} /> Filter</button><button className="icon-button small"><Search size={16} /></button></div></div><RequestList requests={requests} selectedRequestId={selectedRequest.id} onSelectRequest={onSelectRequest} authority /></section><section className="panel conflict-panel"><div className="panel-heading compact"><div><div className="eyebrow">Water intelligence</div><h2>Distribution health</h2></div><button className="link-button" onClick={onOpenMediation}>Open intelligence <ArrowRight size={14} /></button></div><div className="mini-chart"><div className="chart-labels"><span>Canal 1</span><strong>92%</strong></div><div className="chart-track"><span style={{ width: '92%' }} /></div><div className="chart-labels"><span>Canal 2</span><strong>70%</strong></div><div className="chart-track"><span className="blue-fill" style={{ width: '70%' }} /></div><div className="chart-labels"><span>Canal 3</span><strong>48%</strong></div><div className="chart-track"><span className="amber-fill" style={{ width: '48%' }} /></div></div><div className="intelligence-alert"><AlertTriangle size={16} /><span>Canal 3 has 3 requests above available flow. Review recommended before next release.</span><ArrowRight size={15} /></div></section></div><aside className="authority-side"><section className="panel review-panel"><div className="panel-heading compact"><div><div className="eyebrow">Mediation center</div><h2>Review recommendation</h2></div><span className="review-id">{selectedRequest.id}</span></div><div className="reviewer-line"><div className="avatar small">RP</div><div><strong>Ramesh Patil</strong><span>Khed, Maharashtra · Soybean</span></div><span className="priority-badge">High priority</span></div><blockquote>“{selectedRequest.request_text}”</blockquote><div className="recommendation"><div className="rec-top"><span><Sparkles size={15} /> Recommended path</span><span className="score-pill">92 fairness</span></div><strong>{selectedRequest.recommendation}</strong><p>Release 18,000 L now and schedule 12,000 L in the next canal window. This protects flowering stage without exceeding the current outlet balance.</p></div><button className="explain-button"><CircleHelp size={15} /> Why this recommendation? <ArrowRight size={14} /></button><div className="review-actions"><button className="reject-button"><X size={15} /> Request changes</button><button className="approve-button" onClick={onApprove}><Check size={15} /> Approve allocation</button></div><div className="human-note"><ShieldCheck size={14} /> AI recommendation · human decision required</div></section><section className="panel audit-mini"><div className="panel-heading compact"><div><div className="eyebrow">Audit trail</div><h2>Latest activity</h2></div><button className="more-button"><MoreHorizontal size={18} /></button></div>{events.slice(0, 3).map((event) => <div className="audit-row" key={event.id}><div className={`audit-icon ${event.event_type}`}><Activity size={14} /></div><div><strong>{event.title}</strong><span>{event.detail}</span></div><time>{formatTime(event.created_at)}</time></div>)}</section></aside></div></>;
+/* ── Overview: Authority Center ── */
+
+type AuthorityProps = { requests: WaterRequest[]; selectedRequest: WaterRequest; events: AuditEvent[]; onSelectRequest: (id: string) => void; onApprove: () => void; onOpenMediation: () => void; onOpenIntelligence: () => void; onOpenAudit: () => void };
+function AuthorityCenter({ requests, selectedRequest, events, onSelectRequest, onApprove, onOpenMediation, onOpenIntelligence, onOpenAudit }: AuthorityProps) {
+  return <><section className="stat-grid authority-stats"><StatCard label="Open requests" value={String(requests.length)} meta="Needs attention" icon={<FileText />} tone="blue" /><StatCard label="Water in system" value="2.4M L" meta="Across 6 outlets" icon={<Waves />} tone="aqua" /><StatCard label="Potential conflicts" value="3" meta="Needs verification" icon={<AlertTriangle />} tone="red" /><StatCard label="Avg. response SLA" value="1h 42m" meta="18m ahead of target" icon={<Clock3 />} tone="green" /></section><div className="authority-layout"><div className="authority-main"><section className="panel queue-panel"><div className="panel-heading compact"><div><div className="eyebrow">Review queue</div><h2>Requests needing attention</h2></div><div className="filter-actions"><button className="outline-button small"><ListFilter size={14} /> Filter</button><button className="icon-button small"><Search size={16} /></button></div></div><RequestList requests={requests} selectedRequestId={selectedRequest.id} onSelectRequest={onSelectRequest} authority /></section><section className="panel conflict-panel"><div className="panel-heading compact"><div><div className="eyebrow">Water intelligence</div><h2>Distribution health</h2></div><button className="link-button" onClick={onOpenIntelligence}>Open intelligence <ArrowRight size={14} /></button></div><div className="mini-chart"><div className="chart-labels"><span>Canal 1</span><strong>92%</strong></div><div className="chart-track"><span style={{ width: '92%' }} /></div><div className="chart-labels"><span>Canal 2</span><strong>70%</strong></div><div className="chart-track"><span className="blue-fill" style={{ width: '70%' }} /></div><div className="chart-labels"><span>Canal 3</span><strong>48%</strong></div><div className="chart-track"><span className="amber-fill" style={{ width: '48%' }} /></div></div><div className="intelligence-alert"><AlertTriangle size={16} /><span>Canal 3 has 3 requests above available flow. Review recommended before next release.</span><ArrowRight size={15} /></div></section></div><aside className="authority-side"><section className="panel review-panel"><div className="panel-heading compact"><div><div className="eyebrow">Mediation center</div><h2>Review recommendation</h2></div><span className="review-id">{selectedRequest.id}</span></div><div className="reviewer-line"><div className="avatar small">RP</div><div><strong>Ramesh Patil</strong><span>Khed, Maharashtra · Soybean</span></div><span className="priority-badge">High priority</span></div><blockquote>“{selectedRequest.request_text}”</blockquote><div className="recommendation"><div className="rec-top"><span><Sparkles size={15} /> Recommended path</span><span className="score-pill">92 fairness</span></div><strong>{selectedRequest.recommendation}</strong><p>Release 18,000 L now and schedule 12,000 L in the next canal window. This protects flowering stage without exceeding the current outlet balance.</p></div><button className="explain-button"><CircleHelp size={15} /> Why this recommendation? <ArrowRight size={14} /></button><div className="review-actions"><button className="reject-button"><X size={15} /> Request changes</button><button className="approve-button" onClick={onApprove}><Check size={15} /> Approve allocation</button></div><div className="human-note"><ShieldCheck size={14} /> AI recommendation · human decision required</div></section><section className="panel audit-mini"><div className="panel-heading compact"><div><div className="eyebrow">Audit trail</div><h2>Latest activity</h2></div><button className="link-button" onClick={onOpenAudit}>View all <ArrowRight size={14} /></button></div>{events.slice(0, 3).map((event) => <div className="audit-row" key={event.id}><div className={`audit-icon ${event.event_type}`}><Activity size={14} /></div><div><strong>{event.title}</strong><span>{event.detail}</span></div><time>{formatTime(event.created_at)}</time></div>)}</section></aside></div></>;
 }
 
+/* ── Requests View ── */
+
+type RequestsViewProps = { role: Role; requests: WaterRequest[]; selectedRequest: WaterRequest; events: AuditEvent[]; onSelectRequest: (id: string) => void; onApprove: () => void; onNewRequest: () => void };
+function RequestsView({ role, requests, selectedRequest, events, onSelectRequest, onApprove, onNewRequest }: RequestsViewProps) {
+  const requestEvents = events.filter((event) => event.request_id === selectedRequest.id);
+  return <div className="requests-view-layout">
+    <div className="requests-view-list">
+      <section className="panel">
+        <div className="panel-heading compact">
+          <div><div className="eyebrow">{role === 'farmer' ? 'Your requests' : 'All requests'}</div><h2>{requests.length} {requests.length === 1 ? 'request' : 'requests'} in the system</h2></div>
+          {role === 'farmer' && <button className="primary-button" onClick={onNewRequest}><Mic size={14} /> New request</button>}
+        </div>
+        <RequestList requests={requests} selectedRequestId={selectedRequest.id} onSelectRequest={onSelectRequest} authority={role === 'authority'} showAll />
+      </section>
+    </div>
+    <div className="requests-view-detail">
+      <section className="panel">
+        <div className="panel-heading compact">
+          <div><div className="eyebrow">Request detail</div><h2>{selectedRequest.id}</h2></div>
+          <span className={`status-badge ${selectedRequest.status}`}>{selectedRequest.status === 'approved' ? 'Approved' : selectedRequest.status === 'needs_info' ? 'Needs info' : 'Under review'}</span>
+        </div>
+        <div className="reviewer-line"><div className="avatar small">RP</div><div><strong>Ramesh Patil</strong><span>Khed, Maharashtra · {selectedRequest.crop}</span></div></div>
+        <blockquote>“{selectedRequest.request_text}”</blockquote>
+        <div className="request-detail-grid">
+          <div className="detail-item"><Droplets size={15} /><div><span>Water requested</span><strong>{formatLiters(selectedRequest.liters_requested)} L</strong></div></div>
+          <div className="detail-item"><Leaf size={15} /><div><span>Crop & stage</span><strong>{selectedRequest.crop} · {selectedRequest.crop_stage}</strong></div></div>
+          <div className="detail-item"><Zap size={15} /><div><span>Urgency</span><strong className="capitalize">{selectedRequest.urgency}</strong></div></div>
+          <div className="detail-item"><Scale size={15} /><div><span>Fairness score</span><strong>{selectedRequest.fairness_score}/100</strong></div></div>
+        </div>
+        {role === 'authority' && <>
+          <div className="recommendation">
+            <div className="rec-top"><span><Sparkles size={15} /> Recommended path</span><span className="score-pill">{selectedRequest.fairness_score} fairness</span></div>
+            <strong>{selectedRequest.recommendation}</strong>
+            <p>Release 18,000 L now and schedule 12,000 L in the next canal window. This protects flowering stage without exceeding the current outlet balance.</p>
+          </div>
+          <div className="review-actions"><button className="reject-button"><X size={15} /> Request changes</button><button className="approve-button" onClick={onApprove}><Check size={15} /> Approve allocation</button></div>
+          <div className="human-note"><ShieldCheck size={14} /> AI recommendation · human decision required</div>
+        </>}
+      </section>
+      <section className="panel">
+        <div className="panel-heading compact"><div><div className="eyebrow">Timeline</div><h2>Request history</h2></div><Activity size={18} className="muted-icon" /></div>
+        <Timeline status={selectedRequest.status} />
+      </section>
+      {requestEvents.length > 0 && <section className="panel">
+        <div className="panel-heading compact"><div><div className="eyebrow">Audit events</div><h2>For this request</h2></div></div>
+        {requestEvents.map((event) => <div className="audit-row" key={event.id}><div className={`audit-icon ${event.event_type}`}><Activity size={14} /></div><div><strong>{event.title}</strong><span>{event.detail}</span></div><time>{formatTime(event.created_at)}</time></div>)}
+      </section>}
+    </div>
+  </div>;
+}
+
+/* ── Intelligence View ── */
+
+function IntelligenceView({ role }: { role: Role }) {
+  const canals = [
+    { name: 'Canal 1 · Main distributary', flow: 92, volume: '820,000 L', status: 'healthy', color: 'green' },
+    { name: 'Canal 2 · Khed distributary', flow: 70, volume: '610,000 L', status: 'moderate', color: 'blue' },
+    { name: 'Canal 3 · East branch', flow: 48, volume: '340,000 L', status: 'low', color: 'amber' },
+  ];
+  const reservoirs = [
+    { name: 'Khadakwasla reservoir', level: 78, capacity: '1.8M L', trend: 'up' },
+    { name: 'Panshet dam', level: 64, capacity: '1.2M L', trend: 'stable' },
+    { name: 'Varasgaon reservoir', level: 52, capacity: '980,000 L', trend: 'down' },
+  ];
+  return <>
+    <section className="stat-grid">
+      <StatCard label="Total water available" value="2.4M L" meta="Across 3 reservoirs" icon={<Waves />} tone="aqua" />
+      <StatCard label="Canal utilization" value="70%" meta="Average across 3 canals" icon={<TrendingUp />} tone="blue" />
+      <StatCard label="Rainfall this week" value="42 mm" meta="12% below seasonal average" icon={<CloudRain />} tone="green" />
+      <StatCard label="Demand forecast" value="3.1M L" meta="Next 7 days · 3 canals" icon={<Gauge />} tone="amber" />
+    </section>
+    <div className="intelligence-view-layout">
+      <div className="intelligence-view-main">
+        <section className="panel">
+          <div className="panel-heading compact"><div><div className="eyebrow">Canal distribution</div><h2>Flow levels by canal</h2></div><button className="outline-button small"><ListFilter size={14} /> Filter</button></div>
+          <div className="canal-list">
+            {canals.map((canal) => (
+              <div className="canal-card" key={canal.name}>
+                <div className="canal-header"><Waves size={18} className={`canal-icon ${canal.color}`} /><div><strong>{canal.name}</strong><span>{canal.volume} available</span></div><span className={`flow-badge ${canal.color}`}>{canal.flow}% flow</span></div>
+                <div className="chart-track"><span className={canal.color === 'green' ? '' : canal.color === 'blue' ? 'blue-fill' : 'amber-fill'} style={{ width: `${canal.flow}%` }} /></div>
+                <div className="canal-footer"><span className={`status-dot ${canal.color}`} /> {canal.status === 'healthy' ? 'Operating normally' : canal.status === 'moderate' ? 'Moderate demand' : 'Low flow — attention needed'}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading compact"><div><div className="eyebrow">Demand forecast</div><h2>7-day water demand projection</h2></div></div>
+          <div className="forecast-chart">
+            {[
+              { day: 'Mon', value: 60 }, { day: 'Tue', value: 72 }, { day: 'Wed', value: 85 },
+              { day: 'Thu', value: 78 }, { day: 'Fri', value: 90 }, { day: 'Sat', value: 95 }, { day: 'Sun', value: 82 },
+            ].map((bar) => (
+              <div className="forecast-bar" key={bar.day}>
+                <div className="forecast-bar-fill" style={{ height: `${bar.value}%` }} />
+                <span>{bar.day}</span>
+              </div>
+            ))}
+          </div>
+          <div className="intelligence-alert"><TrendingUp size={16} /><span>Demand peaks Friday at 95% of canal capacity. Pre-position water reserves by Thursday.</span></div>
+        </section>
+      </div>
+      <div className="intelligence-view-side">
+        <section className="panel">
+          <div className="panel-heading compact"><div><div className="eyebrow">Reservoir levels</div><h2>Storage status</h2></div></div>
+          {reservoirs.map((reservoir) => (
+            <div className="reservoir-row" key={reservoir.name}>
+              <div className="reservoir-top"><Droplets size={16} /><strong>{reservoir.name}</strong></div>
+              <div className="reservoir-bar"><span style={{ width: `${reservoir.level}%` }} /></div>
+              <div className="reservoir-meta"><span>{reservoir.capacity}</span><strong>{reservoir.level}% capacity</strong></div>
+            </div>
+          ))}
+        </section>
+        <section className="panel">
+          <div className="panel-heading compact"><div><div className="eyebrow">Weather outlook</div><h2>Rainfall forecast</h2></div><CloudRain size={18} className="muted-icon" /></div>
+          <div className="weather-grid">
+            <div className="weather-day"><span>Today</span><CloudRain size={20} /><strong>42mm</strong></div>
+            <div className="weather-day"><span>Tomorrow</span><CloudRain size={20} /><strong>18mm</strong></div>
+            <div className="weather-day"><span>Wed</span><Droplets size={20} /><strong>6mm</strong></div>
+            <div className="weather-day"><span>Thu</span><Droplets size={20} /><strong>2mm</strong></div>
+          </div>
+          <p className="weather-note"><Info size={13} /> Rainfall expected to drop after Tuesday. Canal flow may reduce by Thursday.</p>
+        </section>
+        {role === 'authority' && <section className="panel">
+          <div className="panel-heading compact"><div><div className="eyebrow">AI insight</div><h2>Distribution recommendation</h2></div><Sparkles size={18} className="muted-icon" /></div>
+          <div className="recommendation">
+            <div className="rec-top"><span><Sparkles size={15} /> AI analysis</span><span className="score-pill">Confidence: 87%</span></div>
+            <strong>Prioritize Canal 3 replenishment</strong>
+            <p>Canal 3 is at 48% flow with 3 pending requests. Transfer 200,000 L from Khadakwasla reservoir by Wednesday before rainfall drops.</p>
+          </div>
+          <div className="human-note"><ShieldCheck size={14} /> AI recommendation · human decision required</div>
+        </section>}
+      </div>
+    </div>
+  </>;
+}
+
+/* ── Mediation View ── */
+
+type MediationViewProps = { role: Role; requests: WaterRequest[]; onSelectRequest: (id: string) => void };
+function MediationView({ role, requests, onSelectRequest }: MediationViewProps) {
+  const conflicts = [
+    { id: 'CNF-301', village: 'Khed', farmers: ['Ramesh Patil', 'Suresh Deshmukh'], issue: 'Both requesting from Canal 2 simultaneously', status: 'active', recommendation: 'Split allocation: 18,000 L each across two canal windows' },
+    { id: 'CNF-302', village: 'Baramati', farmers: ['Mahesh Pawar', 'Anil Jadhav'], issue: 'Disputed water rights for shared outlet', status: 'mediation', recommendation: 'Refer to historical entitlement records and propose 60/40 split' },
+    { id: 'CNF-303', village: 'Junnar', farmers: ['Vikram Shinde', 'Prakash Kale'], issue: 'Upstream withdrawal exceeding agreed share', status: 'review', recommendation: 'Install flow monitor and cap upstream withdrawal' },
+  ];
+  return <>
+    <section className="stat-grid">
+      <StatCard label="Active conflicts" value="3" meta="2 need mediation" icon={<AlertTriangle />} tone="red" />
+      <StatCard label="In mediation" value="1" meta="Awaiting farmer response" icon={<MessageSquare />} tone="blue" />
+      <StatCard label="Resolved this month" value="7" meta="100% farmer satisfaction" icon={<CheckCircle2 />} tone="green" />
+      <StatCard label="Avg. resolution time" value="2.3 days" meta="0.5 days faster than last cycle" icon={<Clock3 />} tone="aqua" />
+    </section>
+    <div className="mediation-view-layout">
+      {conflicts.map((conflict) => (
+        <section className="panel mediation-card" key={conflict.id}>
+          <div className="mediation-header">
+            <div className={`conflict-icon ${conflict.status}`}><Scale size={18} /></div>
+            <div className="mediation-title">
+              <div className="eyebrow">{conflict.id} · {conflict.village}</div>
+              <h2>{conflict.issue}</h2>
+            </div>
+            <span className={`status-badge ${conflict.status === 'active' ? 'needs_info' : conflict.status === 'mediation' ? 'under_review' : 'approved'}`}>{conflict.status === 'active' ? 'Active' : conflict.status === 'mediation' ? 'In mediation' : 'Under review'}</span>
+          </div>
+          <div className="mediation-farmers">
+            {conflict.farmers.map((farmerName) => (
+              <div className="mediation-farmer" key={farmerName}>
+                <div className="avatar small">{farmerName.split(' ').map((word) => word[0]).join('')}</div>
+                <div><strong>{farmerName}</strong><span>{conflict.village}, Maharashtra</span></div>
+              </div>
+            ))}
+          </div>
+          <div className="recommendation">
+            <div className="rec-top"><span><Sparkles size={15} /> AI recommendation</span><span className="score-pill">Proposed</span></div>
+            <strong>{conflict.recommendation}</strong>
+          </div>
+          {role === 'authority' && <div className="review-actions">
+            <button className="reject-button"><MessageSquare size={14} /> Open dialogue</button>
+            <button className="approve-button"><Check size={14} /> Accept proposal</button>
+          </div>}
+          <div className="human-note"><ShieldCheck size={14} /> AI recommendation · human decision required</div>
+        </section>
+      ))}
+    </div>
+  </>;
+}
+
+/* ── Audit View ── */
+
+function AuditView({ events }: { events: AuditEvent[] }) {
+  return <div className="audit-view-layout">
+    <section className="panel">
+      <div className="panel-heading compact">
+        <div><div className="eyebrow">System activity</div><h2>{events.length} events recorded</h2></div>
+        <button className="outline-button small"><ListFilter size={14} /> Filter by type</button>
+      </div>
+      <div className="audit-full-list">
+        {events.map((event) => (
+          <div className="audit-row-full" key={event.id}>
+            <div className={`audit-icon ${event.event_type}`}>
+              {event.event_type === 'request' ? <FileText size={14} /> : event.event_type === 'ai' ? <Sparkles size={14} /> : event.event_type === 'approval' ? <Check size={14} /> : <Activity size={14} />}
+            </div>
+            <div className="audit-row-content">
+              <div className="audit-row-top"><strong>{event.title}</strong><span className="audit-type-badge">{event.event_type}</span></div>
+              <span>{event.detail}</span>
+              {event.request_id && <span className="audit-request-link">Request: {event.request_id}</span>}
+            </div>
+            <time>{formatDate(event.created_at)}</time>
+          </div>
+        ))}
+        {events.length === 0 && <div className="audit-empty"><ClipboardCheck size={32} /><p>No events recorded yet. Submit a request to see activity here.</p></div>}
+      </div>
+    </section>
+  </div>;
+}
+
+/* ── Shared Components ── */
+
 function StatCard({ label, value, meta, icon, tone }: { label: string; value: string; meta: string; icon: React.ReactNode; tone: string }) { return <div className={`stat-card ${tone}`}><div className="stat-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong><small>{meta}</small></div></div>; }
-function RequestList({ requests, selectedRequestId, onSelectRequest, authority = false }: { requests: WaterRequest[]; selectedRequestId: string; onSelectRequest: (id: string) => void; authority?: boolean }) { return <div className="request-list">{requests.slice(0, authority ? 4 : 3).map((request) => <button className={`request-row ${selectedRequestId === request.id ? 'selected' : ''}`} key={request.id} onClick={() => onSelectRequest(request.id)}><div className={`request-row-icon ${request.status}`}><FileText size={16} /></div><div className="request-row-main"><strong>{request.request_text}</strong><span>{request.id} · {request.crop} · {formatTime(request.created_at)}</span></div><span className={`status-badge ${request.status}`}>{request.status === 'approved' ? 'Approved' : request.status === 'needs_info' ? 'Needs info' : 'Under review'}</span><ArrowRight size={15} className="row-arrow" /></button>)}</div>; }
+function RequestList({ requests, selectedRequestId, onSelectRequest, authority = false, showAll = false }: { requests: WaterRequest[]; selectedRequestId: string; onSelectRequest: (id: string) => void; authority?: boolean; showAll?: boolean }) { return <div className="request-list">{requests.slice(0, showAll ? undefined : authority ? 4 : 3).map((request) => <button className={`request-row ${selectedRequestId === request.id ? 'selected' : ''}`} key={request.id} onClick={() => onSelectRequest(request.id)}><div className={`request-row-icon ${request.status}`}><FileText size={16} /></div><div className="request-row-main"><strong>{request.request_text}</strong><span>{request.id} · {request.crop} · {formatTime(request.created_at)}</span></div><span className={`status-badge ${request.status}`}>{request.status === 'approved' ? 'Approved' : request.status === 'needs_info' ? 'Needs info' : 'Under review'}</span><ArrowRight size={15} className="row-arrow" /></button>)}</div>; }
 function StatusCard({ request, onTrack }: { request: WaterRequest; onTrack: () => void }) { const approved = request.status === 'approved'; return <section className={`status-card ${approved ? 'approved' : ''}`}><div className="status-top"><div className="check-ring"><Check size={18} /></div><span>{approved ? 'Request approved' : 'Request under review'}</span><span className="request-number">{request.id}</span></div><h2>{approved ? 'Your water allocation is confirmed.' : 'Your request is with a water officer.'}</h2><p>{approved ? '18,000 L will be released in the next canal window, with the balance scheduled after verification.' : 'We extracted the key details and generated a recommendation. You will be notified after human review.'}</p><div className="status-card-footer"><span><Clock3 size={14} /> Updated just now</span><button onClick={onTrack}>View timeline <ArrowRight size={14} /></button></div></section>; }
 function Timeline({ status }: { status: RequestStatus }) { return <div className="timeline"><div className="timeline-item done"><span className="timeline-dot"><Check size={11} /></span><div><strong>Request submitted</strong><span>Natural-language note received</span></div><time>9:41 AM</time></div><div className="timeline-item done"><span className="timeline-dot"><Check size={11} /></span><div><strong>Details extracted</strong><span>Crop and urgency confirmed</span></div><time>9:42 AM</time></div><div className={`timeline-item ${status === 'approved' ? 'done' : 'current'}`}><span className="timeline-dot">{status === 'approved' ? <Check size={11} /> : <span />}</span><div><strong>{status === 'approved' ? 'Allocation approved' : 'Human review'}</strong><span>{status === 'approved' ? 'Officer approved the recommendation' : 'A water officer is reviewing this request'}</span></div><time>{status === 'approved' ? 'Now' : 'In progress'}</time></div><div className="timeline-item"><span className="timeline-dot"><span /></span><div><strong>Water release</strong><span>Next canal window · today</span></div></div></div>; }
 
